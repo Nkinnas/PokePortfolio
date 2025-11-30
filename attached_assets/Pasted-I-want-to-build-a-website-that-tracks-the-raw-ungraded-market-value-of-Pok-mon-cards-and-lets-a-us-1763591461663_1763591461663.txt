@@ -1,0 +1,109 @@
+I want to build a website that tracks the raw (ungraded) market value of Pokémon cards and lets a user manage a simple portfolio of cards they own.
+
+The core idea:
+
+Users can search for a Pokémon card
+
+See its current raw market price and an image of the card
+
+View a line chart of the card’s price history
+
+Add the card to a portfolio/collection
+
+On the portfolio page, see the total value of their collection and percent gain/loss on each card and overall.
+
+Please include at least these core features:
+
+Search & Card View
+
+A search bar where the user can type a card name (e.g. “Charizard”) and see matching Pokémon cards.
+
+For each card in the results, show:
+
+Card image
+
+Card name
+
+Set name
+
+Current raw market price (e.g. in USD)
+
+When a card is clicked, show a card detail page with:
+
+Larger card image
+
+Name, set, card number
+
+Current raw market price
+
+A line chart showing the price history over time for that card.
+
+Basic stats like:
+
+Percent change over a selected period (for example last 30 days)
+
+Lowest and highest price in that period
+
+Portfolio / Collection
+
+The user should be able to add a card to their portfolio from the card detail view.
+
+When adding, let the user input:
+
+Quantity owned
+
+Their purchase price per card
+
+A Portfolio page that:
+
+Lists all cards the user has added, with:
+
+Card image and name
+
+Quantity owned
+
+Purchase price
+
+Current market price
+
+Current total value for that card (quantity × current market price)
+
+Cost basis (quantity × purchase price)
+
+Percent gain or loss and profit/loss in dollars for each card
+
+Shows a summary at the top:
+
+Total current portfolio value
+
+Total cost basis
+
+Overall profit/loss and overall percent change
+
+Price History & Line Chart
+
+For each card, store a simple price history over time (this can be sample or simulated data if real prices are not available).
+
+Use that data to draw a line chart on the card detail page.
+
+Calculate and display percent increase or decrease over the chosen time range using that history.
+
+General UX
+
+The website should be clean and easy to use:
+
+A navigation header with links like “Search” and “Portfolio”.
+
+Clear formatting of money values (e.g. $12.34).
+
+It does not need to handle graded cards (PSA/BGS/etc.) – only raw card values.
+
+If external Pokémon card data is needed (names, sets, images), you can assume the site uses a public Pokémon cards API or sample data, but the main focus should be on:
+
+Searching cards
+
+Showing current raw value + image
+
+Showing price history with a line chart
+
+Managing a portfolio with value and percent change.
