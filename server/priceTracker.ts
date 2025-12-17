@@ -5,7 +5,7 @@ import * as cron from "node-cron";
 let scheduledTask: cron.ScheduledTask | null = null;
 let isRunning = false; // Mutex to prevent concurrent executions
 
-const MAX_RETRIES = 3;
+const MAX_RETRIES = 5;
 const RETRY_DELAY_MS = 5 * 60 * 1000; // 5 minutes
 
 async function delay(ms: number): Promise<void> {
