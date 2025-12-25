@@ -6,7 +6,7 @@ let scheduledTask: cron.ScheduledTask | null = null;
 let isRunning = false; // Mutex to prevent concurrent executions
 
 const MAX_RETRIES = 5;
-const RETRY_DELAY_MS = 7 * 60 * 1000; // 5 minutes
+const RETRY_DELAY_MS = 7 * 60 * 1000; // 7 minutes
 
 async function delay(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms));
@@ -116,7 +116,7 @@ async function recordPricesWithRetry(attempt = 1): Promise<boolean> {
     
     // If we haven't exceeded max retries, try again after delay
     if (attempt < MAX_RETRIES) {
-      console.log(`[Price Tracker] Retrying in 5 minutes...`);
+      console.log(`[Price Tracker] Retrying in 7 minutes...`);
       await delay(RETRY_DELAY_MS);
       return recordPricesWithRetry(attempt + 1);
     }
@@ -132,7 +132,7 @@ async function recordPricesWithRetry(attempt = 1): Promise<boolean> {
 export function startPriceTracking() {
   // Schedule twice daily: 8:00 AM and 8:00 PM Central Time (America/Chicago)
   // Cron format: minute hour day month weekday
-  // '0 8,20 * * *' = At minute 0 of hour 8 and 20 (8am and 8pm)
+  // '0 8,13,20 * * *' = At minute 0 of hour 8 13 20 (8am, 1pm, and 8pm)
   scheduledTask = cron.schedule('0 8,13,20 * * *', () => {
     const now = new Date().toLocaleString('en-US', { 
       timeZone: 'America/Chicago',
