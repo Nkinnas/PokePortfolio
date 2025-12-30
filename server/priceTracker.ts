@@ -44,8 +44,6 @@ async function recordPricesWithRetry(attempt = 1): Promise<boolean> {
         const result = await getCardById(cardId);
         const currentPrice = getCardPrice(result.data);
         
-
-
         
         // Record price history (shared across all users)
         await storage.recordCardPrice(cardId, currentPrice.toFixed(2));
