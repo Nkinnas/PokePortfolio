@@ -200,6 +200,14 @@ export class DbStorage implements IStorage {
   }
 
   async getPortfolioValueHistory(userId: string, daysBack: number = 90): Promise<PortfolioValueHistory[]> {
+    if (!daysBack || daysBack <= 0) {
+      return await db
+        .select()
+        .from(portfolioValueHistory)
+        .where(sql`${portfolioValueHistory.userId} = ${userId}`)
+        .orderBy(desc(portfolioValueHistory.recordedAt));
+    }
+
     const cutoffDate = new Date();
     cutoffDate.setDate(cutoffDate.getDate() - daysBack);
     

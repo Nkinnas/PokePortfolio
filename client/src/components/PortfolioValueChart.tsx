@@ -13,7 +13,7 @@ interface PortfolioValueChartProps {
   currentValue: number;
 }
 
-type TimeRange = "7d" | "30d" | "90d";
+type TimeRange = "7d" | "30d" | "90d" | "all";
 
 // Format date string (YYYY-MM-DD) without timezone conversion
 function formatDateShort(dateStr: string): string {
@@ -32,7 +32,7 @@ export default function PortfolioValueChart({ currentValue }: PortfolioValueChar
   
   // Fetch real portfolio value history
   const { data: valueHistory = [], isPending } = useQuery<ValueDataPoint[]>({
-    queryKey: ['/api/portfolio-value-history'],
+    queryKey: [timeRange === "all" ? '/api/portfolio-value-history?days=all' : '/api/portfolio-value-history'],
   });
   
   // Show loading only while fetching and before we have any result (success or error)
@@ -54,7 +54,7 @@ export default function PortfolioValueChart({ currentValue }: PortfolioValueChar
   const days = timeRange === "7d" ? 7 : timeRange === "30d" ? 30 : 90;
   
   // Filter data based on selected time range
-  const data = valueHistory.slice(-days);
+  const data = timeRange === "all" ? valueHistory : valueHistory.slice(-days);
   
   // Show message if no data
   if (data.length === 0) {
@@ -121,6 +121,18 @@ export default function PortfolioValueChart({ currentValue }: PortfolioValueChar
               }}
             >
               <span style={{ transform: 'skewX(15deg)', display: 'inline-block' }}>90d</span>
+            </Button>
+            <Button
+              variant={timeRange === "all" ? "default" : "outline"}
+              size="sm"
+              onClick={() => setTimeRange("all")}
+              data-testid="button-all"
+              style={{ 
+                transform: 'skewX(-15deg)',
+                overflow: 'hidden'
+              }}
+            >
+              <span style={{ transform: 'skewX(15deg)', display: 'inline-block' }}>All</span>
             </Button>
           </div>
         </div>

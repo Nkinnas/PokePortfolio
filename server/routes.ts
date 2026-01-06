@@ -444,7 +444,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/portfolio-value-history", requireAuth, async (req, res) => {
     try {
       const userId = req.session.userId!;
-      const daysBack = parseInt(req.query.days as string) || 90;
+      const daysParam = (req.query.days as string) || "";
+      const daysBack = daysParam === "all" ? 0 : parseInt(daysParam) || 90;
       
       const history = await storage.getPortfolioValueHistory(userId, daysBack);
       

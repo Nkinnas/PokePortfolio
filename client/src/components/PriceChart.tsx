@@ -15,7 +15,7 @@ interface PriceChartProps {
   currentPrice: number;
 }
 
-type TimeRange = "7d" | "30d" | "90d";
+type TimeRange = "7d" | "30d" | "90d" | "all";
 
 // Format date string (YYYY-MM-DD) without timezone conversion
 function formatDateShort(dateStr: string): string {
@@ -38,6 +38,9 @@ export default function PriceChart({ cardId, currentPrice }: PriceChartProps) {
   });
   
   const getFilteredData = () => {
+    if (timeRange === "all") {
+      return priceHistory;
+    }
     const days = timeRange === "7d" ? 7 : timeRange === "30d" ? 30 : 90;
     return priceHistory.slice(-days);
   };
@@ -125,6 +128,18 @@ export default function PriceChart({ cardId, currentPrice }: PriceChartProps) {
               }}
             >
               <span style={{ transform: 'skewX(15deg)', display: 'inline-block' }}>90d</span>
+            </Button>
+            <Button
+              variant={timeRange === "all" ? "default" : "outline"}
+              size="sm"
+              onClick={() => setTimeRange("all")}
+              data-testid="button-all"
+              style={{ 
+                transform: 'skewX(-15deg)',
+                overflow: 'hidden'
+              }}
+            >
+              <span style={{ transform: 'skewX(15deg)', display: 'inline-block' }}>All</span>
             </Button>
           </div>
         </div>
