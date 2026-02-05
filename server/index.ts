@@ -79,12 +79,6 @@ app.use((req, res, next) => {
   }, () => {
     log(`serving on port ${port}`);
     
-    // Enable automatic price tracking only when NOT on Replit
-    // (Replit blocks api.pokemontcg.io, so keep it disabled there)
-    if (!process.env.REPL_ID) {
-      startPriceTracking();
-    } else {
-      log("Automatic price tracking disabled (running on Replit - use manual refresh buttons)");
-    }
+    startPriceTracking();
   });
 })();
