@@ -101,52 +101,75 @@ export function PortfolioProvider({ children }: { children: ReactNode }) {
     if (!portfolioCards.length) return;
 
     const now = Date.now();
+    const BATCH_SIZE = 3;
+    const BATCH_DELAY_MS = 500;
 
-    const priceUpdates = await Promise.all(
-      portfolioCards.map(async (card) => {
-        try {
-          const response = await apiRequest('POST', `/api/cards/${card.cardId}/refresh`);
-          const data = await response.json();
-          queryClient.setQueryData(['/api/cards', card.cardId], data, { updatedAt: now });
-          const price = Number(data.price);
-          return { id: card.id, price: isNaN(price) ? null : price };
-        } catch (error) {
-          console.error(`Failed to refresh price for ${card.cardName}:`, error);
-          return null;
-        }
-      })
-    );
+    const priceUpdates: ({ id: string; price: number | null } | null)[] = [];
 
-    const validUpdates = priceUpdates.filter((u): u is { id: string; price: number } => 
+    // Process cards in small batches to avoid rate limiting
+    for (let i = 0; i < portfolioCards.length; i += BATCH_SIZE) {
+      const batch = portfolioCards.slice(i, i + BATCH_SIZE);
+      const batchResults = await Promise.all(
+        batch.map(async (card) => {
+          try {
+            const response = await apiRequest('POST', `/api/cards/${card.cardId}/refresh`);
+            const data = await response.json();
+            queryClient.setQueryData(['/api/cards', card.cardId], data, { updatedAt: now });
+            const price = Number(data.price);
+            return { id: card.id, price: isNaN(price) ? null : price };
+          } catch (error) {
+            console.error(`Failed to refresh price for ${card.cardName}:`, error);
+            return null;
+          }
+        })
+      );
+      priceUpdates.push(...batchResults);
+
+      // Delay between batches (skip after the last batch)
+      if (i + BATCH_SIZE < portfolioCards.length) {
+        await new Promise(r => setTimeout(r, BATCH_DELAY_MS));
+      }
+    }
+
+    const validUpdates = priceUpdates.filter((u): u is { id: string; price: number } =>
       u !== null && u.price !== null && u.price !== undefined && !isNaN(u.price)
     );
 
-    // Only proceed if ALL cards were successfully refreshed
-    if (validUpdates.length !== portfolioCards.length) {
-      throw new Error('Failed to refresh all card prices. Portfolio value not recorded.');
+    if (validUpdates.length === 0) {
+      throw new Error('Failed to refresh any card prices.');
     }
 
-    if (validUpdates.length > 0) {
-      const updatePromises = validUpdates.map(update => 
-        apiRequest('PATCH', `/api/portfolio/${update.id}`, { currentPrice: update.price })
+    // Update portfolio card prices in batches too
+    for (let i = 0; i < validUpdates.length; i += BATCH_SIZE) {
+      const batch = validUpdates.slice(i, i + BATCH_SIZE);
+      await Promise.all(
+        batch.map(update =>
+          apiRequest('PATCH', `/api/portfolio/${update.id}`, { currentPrice: update.price })
+        )
       );
-      
-      await Promise.all(updatePromises);
-      queryClient.invalidateQueries({ queryKey: ['/api/portfolio'] });
-      
-      // Calculate total portfolio value from freshly fetched prices
-      const totalValue = validUpdates.reduce((sum, update) => {
-        const card = portfolioCards.find(c => c.id === update.id);
-        return sum + (card ? card.quantity * update.price : 0);
-      }, 0);
-      
-      // Record total portfolio value in history using fresh prices
-      await apiRequest('POST', '/api/portfolio-value/record', { totalValue });
-      queryClient.invalidateQueries({ queryKey: ['/api/portfolio-value-history'] });
     }
-    
+    queryClient.invalidateQueries({ queryKey: ['/api/portfolio'] });
+
+    // Calculate total portfolio value using fresh prices where available,
+    // falling back to existing prices for cards that failed to refresh
+    const updatedPriceMap = new Map(validUpdates.map(u => [u.id, u.price]));
+    const totalValue = portfolioCards.reduce((sum, card) => {
+      const price = updatedPriceMap.get(card.id) ?? parseFloat(card.currentPrice);
+      return sum + card.quantity * price;
+    }, 0);
+
+    // Record total portfolio value in history using fresh prices
+    await apiRequest('POST', '/api/portfolio-value/record', { totalValue });
+    queryClient.invalidateQueries({ queryKey: ['/api/portfolio-value-history'] });
+
     if (typeof window !== 'undefined') {
       localStorage.setItem('portfolio_last_price_refresh', now.toString());
+    }
+
+    // Throw for partial failure so the UI can show an appropriate message
+    if (validUpdates.length < portfolioCards.length) {
+      const failed = portfolioCards.length - validUpdates.length;
+      throw new Error(`${failed} card(s) failed to refresh, but ${validUpdates.length} succeeded. Portfolio value was still recorded.`);
     }
   };
 

@@ -10,6 +10,7 @@ import bcrypt from "bcryptjs";
 import { db } from "../db";
 import { portfolioCards, portfolioValueHistory } from "@shared/schema";
 import { sql } from "drizzle-orm";
+import { triggerManualUpdate } from "./priceTracker";
 
 // Extend Express session type
 declare module 'express-session' {
@@ -468,6 +469,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Error fetching portfolio value history:", error);
       res.status(500).json({ error: "Failed to fetch portfolio value history" });
+    }
+  });
+
+  // Trigger server-side price update (same as cron job)
+  app.post("/api/admin/trigger-price-update", requireAuth, async (req, res) => {
+    try {
+      const success = await triggerManualUpdate();
+      res.json({ success, message: success ? "All prices updated" : "Some prices failed to update" });
+    } catch (error) {
+      console.error("Error triggering manual update:", error);
+      res.status(500).json({ error: "Failed to trigger price update" });
     }
   });
 

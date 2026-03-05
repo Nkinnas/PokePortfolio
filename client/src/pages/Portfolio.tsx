@@ -87,8 +87,8 @@ export default function Portfolio() {
       });
     } catch (error) {
       toast({
-        title: "Refresh Failed",
-        description: "Some prices could not be updated. Please try again.",
+        title: "Refresh Issue",
+        description: error instanceof Error ? error.message : "Some prices could not be updated. Please try again.",
         variant: "destructive",
       });
     } finally {

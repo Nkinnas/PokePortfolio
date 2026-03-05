@@ -6,32 +6,22 @@ let scheduledTask: cron.ScheduledTask | null = null;
 let isRunning = false; // Mutex to prevent concurrent executions
 
 const MAX_RETRIES = 3;
-const RETRY_DELAY_MS = 4 * 60 * 1000; // 7 minutes
+const RETRY_DELAY_MS = 2 * 60 * 1000; // 2 minutes between retries
+const API_DELAY_MS = 500; // 500ms between individual API calls
 
 async function delay(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
 /**
- * Runs ONE full price update attempt.
- * Throws on failure so retry logic can handle it.
+ * Fetches prices for a list of card IDs, returning a map of successful results
+ * and a list of failed IDs.
  */
-async function recordPricesOnce(): Promise<void> {
-  console.log("[Price Tracker] Fetching all unique card IDs...");
-
-  const uniqueCardIds = await storage.getAllUniqueCardIds();
-
-  if (uniqueCardIds.length === 0) {
-    console.log("[Price Tracker] No cards to track");
-    return;
-  }
-
-  console.log(`[Price Tracker] Updating prices for ${uniqueCardIds.length} unique cards...`);
-
-  const failedCards: string[] = [];
+async function fetchPrices(cardIds: string[]): Promise<{ priceMap: Map<string, number>; failedIds: string[] }> {
   const priceMap = new Map<string, number>();
+  const failedIds: string[] = [];
 
-  for (const cardId of uniqueCardIds) {
+  for (const cardId of cardIds) {
     try {
       const result = await getCardById(cardId);
       const currentPrice = getCardPrice(result.data);
@@ -41,20 +31,23 @@ async function recordPricesOnce(): Promise<void> {
 
       console.log(`[Price Tracker] ✓ ${cardId}: $${currentPrice.toFixed(2)}`);
 
-      await delay(100);
+      await delay(API_DELAY_MS);
     } catch (error) {
       console.error(
         `[Price Tracker] ✗ Failed to update ${cardId}:`,
         error instanceof Error ? error.message : error
       );
-      failedCards.push(cardId);
+      failedIds.push(cardId);
     }
   }
 
-  if (failedCards.length > 0) {
-    throw new Error(`Failed to update ${failedCards.length} card(s): ${failedCards.join(", ")}`);
-  }
+  return { priceMap, failedIds };
+}
 
+/**
+ * Updates portfolio values for all users using the collected price map.
+ */
+async function updatePortfolioValues(priceMap: Map<string, number>): Promise<void> {
   console.log("[Price Tracker] Updating portfolio values...");
 
   const users = await storage.getAllUsersWithPortfolios();
@@ -74,8 +67,10 @@ async function recordPricesOnce(): Promise<void> {
             userId: user.id,
             currentPrice: latestPrice.toFixed(2)
           });
-
           totalValue += latestPrice * card.quantity;
+        } else {
+          // Use existing price for cards we couldn't refresh
+          totalValue += parseFloat(card.currentPrice) * card.quantity;
         }
       }
 
@@ -95,7 +90,8 @@ async function recordPricesOnce(): Promise<void> {
 }
 
 /**
- * Public entry point with mutex + retry handling
+ * Public entry point with mutex + retry handling.
+ * Retries only failed cards instead of the entire batch.
  */
 async function recordPricesWithRetry(): Promise<boolean> {
   if (isRunning) {
@@ -106,27 +102,48 @@ async function recordPricesWithRetry(): Promise<boolean> {
   isRunning = true;
 
   try {
-    for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
-      try {
-        console.log(`[Price Tracker] Starting attempt ${attempt}/${MAX_RETRIES}`);
-        await recordPricesOnce();
-        console.log("[Price Tracker] Price update completed successfully");
-        return true;
-      } catch (error) {
-        console.error(
-          `[Price Tracker] Attempt ${attempt} failed:`,
-          error instanceof Error ? error.message : error
-        );
+    console.log("[Price Tracker] Fetching all unique card IDs...");
+    const uniqueCardIds = await storage.getAllUniqueCardIds();
 
-        if (attempt < MAX_RETRIES) {
-          console.log("[Price Tracker] Retrying in 7 minutes...");
-          await delay(RETRY_DELAY_MS);
-        }
-      }
+    if (uniqueCardIds.length === 0) {
+      console.log("[Price Tracker] No cards to track");
+      return true;
     }
 
-    console.error(`[Price Tracker] All ${MAX_RETRIES} attempts failed. Price update aborted.`);
-    return false;
+    console.log(`[Price Tracker] Updating prices for ${uniqueCardIds.length} unique cards...`);
+
+    const allPrices = new Map<string, number>();
+    let remaining = [...uniqueCardIds];
+
+    for (let attempt = 1; attempt <= MAX_RETRIES && remaining.length > 0; attempt++) {
+      if (attempt > 1) {
+        console.log(`[Price Tracker] Retry attempt ${attempt}/${MAX_RETRIES} for ${remaining.length} failed card(s)...`);
+        await delay(RETRY_DELAY_MS);
+      }
+
+      const { priceMap, failedIds } = await fetchPrices(remaining);
+
+      // Merge successful results
+      priceMap.forEach((price, id) => {
+        allPrices.set(id, price);
+      });
+
+      remaining = failedIds;
+    }
+
+    if (remaining.length > 0) {
+      console.warn(`[Price Tracker] ${remaining.length} card(s) failed after ${MAX_RETRIES} attempts: ${remaining.join(", ")}`);
+    }
+
+    const succeeded = allPrices.size;
+    console.log(`[Price Tracker] Successfully updated ${succeeded}/${uniqueCardIds.length} cards`);
+
+    if (succeeded > 0) {
+      await updatePortfolioValues(allPrices);
+    }
+
+    console.log("[Price Tracker] Price update completed");
+    return remaining.length === 0;
   } finally {
     isRunning = false;
   }
@@ -151,7 +168,7 @@ export function startPriceTracking() {
 
   console.log("[Price Tracker] Automatic price tracking enabled");
   console.log("[Price Tracker] Schedule: 8:00 AM, 1:00 PM, 8:00 PM Central");
-  console.log("[Price Tracker] Retry policy: Up to 5 attempts with 7-minute delays");
+  console.log("[Price Tracker] Retry policy: Up to 3 attempts with 2-minute delays (failed cards only)");
 }
 
 export function stopPriceTracking() {
