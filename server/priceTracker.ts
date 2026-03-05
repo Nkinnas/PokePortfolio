@@ -27,6 +27,7 @@ async function fetchPrices(cardIds: string[]): Promise<{ priceMap: Map<string, n
       const currentPrice = getCardPrice(result.data);
 
       await storage.recordCardPrice(cardId, currentPrice.toFixed(2));
+      await storage.updateCachedCard(cardId, { price: currentPrice.toFixed(2) });
       priceMap.set(cardId, currentPrice);
 
       console.log(`[Price Tracker] ✓ ${cardId}: $${currentPrice.toFixed(2)}`);
