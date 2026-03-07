@@ -2,7 +2,6 @@ import { type User, type InsertUser, type Card, type InsertCard, type PortfolioC
 import { db } from "../db";
 import { cards, portfolioCards, users as usersTable, cardPriceHistory, portfolioValueHistory } from "@shared/schema";
 import { eq, desc, gte, inArray, sql } from "drizzle-orm";
-import { toZonedTime, fromZonedTime } from 'date-fns-tz';
 
 // modify the interface with any CRUD methods
 // you might need
@@ -137,27 +136,12 @@ export class DbStorage implements IStorage {
   }
 
   async recordCardPrice(cardId: string, price: string): Promise<CardPriceHistory> {
-    // Get today's date at midnight (Central Time)
-    const timezone = 'America/Chicago';
-    const nowInCentral = toZonedTime(new Date(), timezone);
-    const todayInCentral = new Date(nowInCentral.getFullYear(), nowInCentral.getMonth(), nowInCentral.getDate());
-    const tomorrowInCentral = new Date(todayInCentral);
-    tomorrowInCentral.setDate(tomorrowInCentral.getDate() + 1);
-    
-    // Convert Central time boundaries to UTC for database query
-    const today = fromZonedTime(todayInCentral, timezone);
-    const tomorrow = fromZonedTime(tomorrowInCentral, timezone);
-    
-    // Delete any existing records for this card from today (Central time)
-    await db
-      .delete(cardPriceHistory)
-      .where(
-        sql`${cardPriceHistory.cardId} = ${cardId} 
-            AND ${cardPriceHistory.recordedAt} >= ${today} 
-            AND ${cardPriceHistory.recordedAt} < ${tomorrow}`
-      );
-    
-    // Insert the new record
+    await db.execute(
+      sql`DELETE FROM card_price_history
+          WHERE card_id = ${cardId}
+            AND DATE(recorded_at) = DATE(NOW())`
+    );
+
     const [record] = await db.insert(cardPriceHistory).values({ cardId, price }).returning();
     return record;
   }
@@ -174,27 +158,12 @@ export class DbStorage implements IStorage {
   }
 
   async recordPortfolioValue(userId: string, totalValue: string): Promise<PortfolioValueHistory> {
-    // Get today's date at midnight (Central Time)
-    const timezone = 'America/Chicago';
-    const nowInCentral = toZonedTime(new Date(), timezone);
-    const todayInCentral = new Date(nowInCentral.getFullYear(), nowInCentral.getMonth(), nowInCentral.getDate());
-    const tomorrowInCentral = new Date(todayInCentral);
-    tomorrowInCentral.setDate(tomorrowInCentral.getDate() + 1);
-    
-    // Convert Central time boundaries to UTC for database query
-    const today = fromZonedTime(todayInCentral, timezone);
-    const tomorrow = fromZonedTime(tomorrowInCentral, timezone);
-    
-    // Delete any existing records from today (Central time) for this user
-    await db
-      .delete(portfolioValueHistory)
-      .where(
-        sql`${portfolioValueHistory.userId} = ${userId}
-            AND ${portfolioValueHistory.recordedAt} >= ${today} 
-            AND ${portfolioValueHistory.recordedAt} < ${tomorrow}`
-      );
-    
-    // Insert the new record
+    await db.execute(
+      sql`DELETE FROM portfolio_value_history
+          WHERE user_id = ${userId}
+            AND DATE(recorded_at) = DATE(NOW())`
+    );
+
     const [record] = await db.insert(portfolioValueHistory).values({ userId, totalValue }).returning();
     return record;
   }

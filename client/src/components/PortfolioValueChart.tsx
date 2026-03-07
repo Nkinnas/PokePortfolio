@@ -33,6 +33,8 @@ export default function PortfolioValueChart({ currentValue }: PortfolioValueChar
   // Fetch real portfolio value history
   const { data: valueHistory = [], isPending } = useQuery<ValueDataPoint[]>({
     queryKey: [timeRange === "all" ? '/api/portfolio-value-history?days=all' : '/api/portfolio-value-history'],
+    staleTime: 5 * 60 * 1000,
+    refetchOnMount: true,
   });
   
   // Show loading only while fetching and before we have any result (success or error)
@@ -146,6 +148,7 @@ export default function PortfolioValueChart({ currentValue }: PortfolioValueChar
                 dataKey="date"
                 tick={{ fontSize: 12 }}
                 tickFormatter={(value) => formatDateShort(value)}
+                minTickGap={40}
               />
               <YAxis
                 tick={{ fontSize: 12 }}

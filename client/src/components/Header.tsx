@@ -1,5 +1,5 @@
 import { Link, useLocation } from "wouter";
-import { Search, Wallet, LogOut } from "lucide-react";
+import { Search, Wallet, LogOut, Layers } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useScrollDirection } from "@/hooks/use-scroll-direction";
 import { useAuth } from "@/lib/AuthContext";
@@ -64,12 +64,27 @@ export default function Header() {
                 Search
               </Button>
             </Link>
+            <Link href="/sets" className="flex-1">
+              <Button
+                variant={location.startsWith("/sets") ? "default" : "ghost"}
+                size="lg"
+                className={`gap-2 w-full relative ${!location.startsWith("/sets") ? "bg-muted text-muted-foreground" : ""}`}
+                style={{
+                  clipPath: 'polygon(10% 0%, 100% 0%, 90% 100%, 0% 100%)',
+                  padding: '0.75rem 1.5rem 0.75rem 2rem'
+                }}
+                data-testid="link-sets"
+              >
+                <Layers className="h-5 w-5" />
+                Sets
+              </Button>
+            </Link>
             <Link href="/portfolio" className="flex-1">
               <Button
                 variant={location === "/portfolio" ? "default" : "ghost"}
                 size="lg"
                 className={`gap-2 w-full relative ${location !== "/portfolio" ? "bg-muted text-muted-foreground" : ""}`}
-                style={{ 
+                style={{
                   clipPath: 'polygon(10% 0%, 100% 0%, 90% 100%, 0% 100%)',
                   padding: '0.75rem 1.5rem 0.75rem 2rem'
                 }}

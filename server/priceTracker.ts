@@ -1,5 +1,5 @@
 import { storage } from "./storage";
-import { getCardById, getCardPrice } from "./pokemontcg";
+import { getCardsByIds, getCardPrice } from "./pokemontcg";
 import * as cron from "node-cron";
 
 let scheduledTask: cron.ScheduledTask | null = null;
@@ -7,38 +7,51 @@ let isRunning = false; // Mutex to prevent concurrent executions
 
 const MAX_RETRIES = 3;
 const RETRY_DELAY_MS = 2 * 60 * 1000; // 2 minutes between retries
-const API_DELAY_MS = 500; // 500ms between individual API calls
 
 async function delay(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
 /**
- * Fetches prices for a list of card IDs, returning a map of successful results
- * and a list of failed IDs.
+ * Fetches prices for a list of card IDs in batches (up to 100 per API call).
+ * Returns a map of successful results and a list of failed IDs.
  */
 async function fetchPrices(cardIds: string[]): Promise<{ priceMap: Map<string, number>; failedIds: string[] }> {
   const priceMap = new Map<string, number>();
   const failedIds: string[] = [];
+  const batchSize = 100;
 
-  for (const cardId of cardIds) {
+  for (let i = 0; i < cardIds.length; i += batchSize) {
+    const batch = cardIds.slice(i, i + batchSize);
+
     try {
-      const result = await getCardById(cardId);
-      const currentPrice = getCardPrice(result.data);
+      console.log(`[Price Tracker] Fetching batch of ${batch.length} cards (${Math.floor(i / batchSize) + 1}/${Math.ceil(cardIds.length / batchSize)})...`);
+      const cards = await getCardsByIds(batch);
 
-      await storage.recordCardPrice(cardId, currentPrice.toFixed(2));
-      await storage.updateCachedCard(cardId, { price: currentPrice.toFixed(2) });
-      priceMap.set(cardId, currentPrice);
+      // Process returned cards
+      const returnedIds = new Set<string>();
+      for (const card of cards) {
+        const currentPrice = getCardPrice(card);
+        await storage.recordCardPrice(card.id, currentPrice.toFixed(2));
+        await storage.updateCachedCard(card.id, { price: currentPrice.toFixed(2) });
+        priceMap.set(card.id, currentPrice);
+        returnedIds.add(card.id);
+        console.log(`[Price Tracker] ✓ ${card.id}: $${currentPrice.toFixed(2)}`);
+      }
 
-      console.log(`[Price Tracker] ✓ ${cardId}: $${currentPrice.toFixed(2)}`);
-
-      await delay(API_DELAY_MS);
+      // Any cards in the batch that weren't returned are failures
+      for (const cardId of batch) {
+        if (!returnedIds.has(cardId)) {
+          console.warn(`[Price Tracker] ✗ ${cardId}: not returned in batch response`);
+          failedIds.push(cardId);
+        }
+      }
     } catch (error) {
       console.error(
-        `[Price Tracker] ✗ Failed to update ${cardId}:`,
+        `[Price Tracker] ✗ Batch failed:`,
         error instanceof Error ? error.message : error
       );
-      failedIds.push(cardId);
+      failedIds.push(...batch);
     }
   }
 
@@ -151,9 +164,9 @@ async function recordPricesWithRetry(): Promise<boolean> {
 }
 
 export function startPriceTracking() {
-  // Runs at 8:00 AM, 1:00 PM, and 8:00 PM Central
+  // Runs at 1:00 PM Central daily
   scheduledTask = cron.schedule(
-    "0 8,13,20 * * *",
+    "0 13 * * *",
     () => {
       const now = new Date().toLocaleString("en-US", {
         timeZone: "America/Chicago",
@@ -168,7 +181,7 @@ export function startPriceTracking() {
   );
 
   console.log("[Price Tracker] Automatic price tracking enabled");
-  console.log("[Price Tracker] Schedule: 8:00 AM, 1:00 PM, 8:00 PM Central");
+  console.log("[Price Tracker] Schedule: 1:00 PM Central daily");
   console.log("[Price Tracker] Retry policy: Up to 3 attempts with 2-minute delays (failed cards only)");
 }
 

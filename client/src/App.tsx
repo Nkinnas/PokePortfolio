@@ -11,6 +11,8 @@ import CardDetail from "@/pages/CardDetail";
 import Portfolio from "@/pages/Portfolio";
 import Login from "@/pages/Login";
 import Signup from "@/pages/Signup";
+import Sets from "@/pages/Sets";
+import SetDetail from "@/pages/SetDetail";
 import NotFound from "@/pages/not-found";
 
 function ProtectedRoute({ component: Component }: { component: () => JSX.Element }) {
@@ -46,6 +48,12 @@ function Router() {
       </Route>
       <Route path="/card/:id">
         {(params) => <ProtectedRoute component={() => <CardDetail {...params} />} />}
+      </Route>
+      <Route path="/sets">
+        {() => <ProtectedRoute component={Sets} />}
+      </Route>
+      <Route path="/sets/:id">
+        {(params) => <ProtectedRoute component={() => <SetDetail {...params} />} />}
       </Route>
       <Route path="/portfolio">
         {() => <ProtectedRoute component={Portfolio} />}

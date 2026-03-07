@@ -1,10 +1,9 @@
 import type { Express, Request, Response, NextFunction } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
-import { searchCards, getCardById, getCardPrice } from "./pokemontcg";
+import { searchCards, getCardById, getCardPrice, getCardImageUrl, backfillCardPriceHistory, getExpansions, getExpansionCards } from "./pokemontcg";
 import { insertPortfolioCardSchema, insertUserSchema } from "@shared/schema";
 import { fromZodError } from "zod-validation-error";
-import { toZonedTime } from 'date-fns-tz';
 import session from "express-session";
 import bcrypt from "bcryptjs";
 import { db } from "../db";
@@ -129,9 +128,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         req.session.userId = user.id;
         req.session.username = user.username;
 
-        res.json({ 
-          id: user.id, 
-          username: user.username 
+        res.json({
+          id: user.id,
+          username: user.username
         });
       });
     } catch (error) {
@@ -162,6 +161,87 @@ export async function registerRoutes(app: Express): Promise<Server> {
     });
   });
 
+  // Get all expansions (sets)
+  app.get("/api/expansions", async (req, res) => {
+    try {
+      const page = parseInt(req.query.page as string) || 1;
+      const pageSize = parseInt(req.query.pageSize as string) || 100;
+      const result = await getExpansions(page, pageSize);
+      res.json({
+        expansions: result.data,
+        page: result.page,
+        pageSize: result.page_size,
+        totalCount: result.total_count,
+      });
+    } catch (error) {
+      console.error("Error fetching expansions:", error);
+      res.status(500).json({ error: "Failed to fetch expansions" });
+    }
+  });
+
+  // Get cards in an expansion
+  app.get("/api/expansions/:id/cards", async (req, res) => {
+    try {
+      const { id } = req.params;
+      const page = parseInt(req.query.page as string) || 1;
+      const pageSize = parseInt(req.query.pageSize as string) || 100;
+      const result = await getExpansionCards(id, page, pageSize);
+
+      const cardIds = result.data.map(card => card.id);
+      const cachedCards = await storage.getCachedCardsByIds(cardIds);
+      const cachedCardMap = new Map(cachedCards.map(c => [c.id, c]));
+
+      const cards = await Promise.all(
+        result.data.map(async (card) => {
+          const cached = cachedCardMap.get(card.id);
+
+          if (cached) {
+            return {
+              id: cached.id,
+              name: cached.name,
+              setName: cached.setName,
+              cardNumber: cached.cardNumber,
+              imageUrl: cached.imageUrl,
+              price: parseFloat(cached.price),
+            };
+          }
+
+          const price = getCardPrice(card);
+          const imageUrl = getCardImageUrl(card);
+          await storage.cacheCard({
+            id: card.id,
+            name: card.name,
+            setName: card.expansion.name,
+            cardNumber: card.number,
+            imageUrl,
+            price: price.toFixed(2),
+          });
+
+          return {
+            id: card.id,
+            name: card.name,
+            setName: card.expansion.name,
+            cardNumber: card.number,
+            imageUrl,
+            price,
+          };
+        })
+      );
+
+      cards.sort((a, b) => b.price - a.price);
+
+      res.json({
+        cards,
+        page: result.page,
+        pageSize: result.page_size,
+        totalCount: result.total_count,
+      });
+    } catch (error) {
+      console.error("Error fetching expansion cards:", error);
+      res.status(500).json({ error: "Failed to fetch expansion cards" });
+    }
+  });
+
   // Search Pokemon cards
   app.get("/api/cards/search", async (req, res) => {
     try {
@@ -182,7 +262,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const cards = await Promise.all(
         result.data.map(async (card) => {
           const cached = cachedCardMap.get(card.id);
-          
+
           if (cached) {
             return {
               id: cached.id,
@@ -194,23 +274,24 @@ export async function registerRoutes(app: Express): Promise<Server> {
               lastUpdated: cached.lastUpdated.toISOString(),
             };
           }
-          
+
           const price = getCardPrice(card);
+          const imageUrl = getCardImageUrl(card);
           await storage.cacheCard({
             id: card.id,
             name: card.name,
-            setName: card.set.name,
+            setName: card.expansion.name,
             cardNumber: card.number,
-            imageUrl: card.images.large,
+            imageUrl,
             price: price.toFixed(2),
           });
-          
+
           return {
             id: card.id,
             name: card.name,
-            setName: card.set.name,
+            setName: card.expansion.name,
             cardNumber: card.number,
-            imageUrl: card.images.large,
+            imageUrl,
             price,
             lastUpdated: new Date().toISOString(),
           };
@@ -220,8 +301,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json({
         cards,
         page: result.page,
-        pageSize: result.pageSize,
-        totalCount: result.totalCount,
+        pageSize: result.page_size,
+        totalCount: result.total_count,
       });
     } catch (error) {
       console.error("Error searching cards:", error);
@@ -249,22 +330,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       const result = await getCardById(id);
       const price = getCardPrice(result.data);
-      
+      const imageUrl = getCardImageUrl(result.data);
+
       await storage.cacheCard({
         id: result.data.id,
         name: result.data.name,
-        setName: result.data.set.name,
+        setName: result.data.expansion.name,
         cardNumber: result.data.number,
-        imageUrl: result.data.images.large,
+        imageUrl,
         price: price.toFixed(2),
       });
-      
+
       const card = {
         id: result.data.id,
         name: result.data.name,
-        setName: result.data.set.name,
+        setName: result.data.expansion.name,
         cardNumber: result.data.number,
-        imageUrl: result.data.images.large,
+        imageUrl,
         price,
         lastUpdated: new Date().toISOString(),
       };
@@ -282,25 +364,26 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const { id } = req.params;
       const result = await getCardById(id);
       const price = getCardPrice(result.data);
-      
+      const imageUrl = getCardImageUrl(result.data);
+
       await storage.cacheCard({
         id: result.data.id,
         name: result.data.name,
-        setName: result.data.set.name,
+        setName: result.data.expansion.name,
         cardNumber: result.data.number,
-        imageUrl: result.data.images.large,
+        imageUrl,
         price: price.toFixed(2),
       });
-      
+
       // Also record in price history (will overwrite today's entry if exists)
       await storage.recordCardPrice(result.data.id, price.toFixed(2));
-      
+
       const card = {
         id: result.data.id,
         name: result.data.name,
-        setName: result.data.set.name,
+        setName: result.data.expansion.name,
         cardNumber: result.data.number,
-        imageUrl: result.data.images.large,
+        imageUrl,
         price,
         lastUpdated: new Date().toISOString(),
       };
@@ -324,6 +407,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  async function updatePortfolioValue(userId: string) {
+    const allCards = await storage.getAllPortfolioCards(userId);
+    const totalValue = allCards.reduce((sum, c) => sum + parseFloat(c.currentPrice) * c.quantity, 0);
+    await storage.recordPortfolioValue(userId, totalValue.toFixed(2));
+    console.log(`[Portfolio] Recorded value: $${totalValue.toFixed(2)}`);
+  }
+
   app.post("/api/portfolio", requireAuth, async (req, res) => {
     try {
       const userId = req.session.userId!;
@@ -335,6 +425,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       const card = await storage.createPortfolioCard({ ...validation.data, userId });
       res.json(card);
+
+      // Background: backfill price history + update portfolio value
+      (async () => {
+        await backfillCardPriceHistory(card.cardId).catch(err =>
+          console.error(`Failed to backfill price history for ${card.cardId}:`, err)
+        );
+        await updatePortfolioValue(userId).catch(err =>
+          console.error(`Failed to update portfolio value:`, err)
+        );
+      })();
     } catch (error) {
       console.error("Error creating portfolio card:", error);
       res.status(500).json({ error: "Failed to create portfolio card" });
@@ -358,6 +458,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!updated) {
         return res.status(404).json({ error: "Card not found" });
       }
+
+      if (safeData.quantity !== undefined) {
+        await updatePortfolioValue(userId);
+      }
+
       res.json(updated);
     } catch (error) {
       console.error("Error updating portfolio card:", error);
@@ -369,7 +474,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const { id } = req.params;
       const userId = req.session.userId!;
+
+      const card = await storage.getPortfolioCard(id);
       await storage.deletePortfolioCard(id, userId);
+
+      // Delete price history only if no other user has this card
+      if (card) {
+        const remaining = await db.execute(
+          sql`SELECT COUNT(*) as cnt FROM portfolio_cards WHERE card_id = ${card.cardId}`
+        );
+        if (parseInt(remaining.rows[0].cnt as string) === 0) {
+          await db.execute(sql`DELETE FROM card_price_history WHERE card_id = ${card.cardId}`);
+          console.log(`[Portfolio] Deleted price history for ${card.cardId} (no longer in any portfolio)`);
+        }
+      }
+
+      await updatePortfolioValue(userId);
       res.json({ success: true });
     } catch (error) {
       console.error("Error deleting portfolio card:", error);
@@ -382,24 +502,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const { cardId } = req.params;
       const daysBack = parseInt(req.query.days as string) || 180;
-      
+
       const history = await storage.getCardPriceHistory(cardId, daysBack);
-      
-      // Transform to frontend format - convert UTC to Central timezone
-      const timezone = 'America/Chicago';
-      const formattedHistory = history.map(record => {
-        const utcDate = new Date(record.recordedAt);
-        const centralDate = toZonedTime(utcDate, timezone);
-        const year = centralDate.getFullYear();
-        const month = String(centralDate.getMonth() + 1).padStart(2, '0');
-        const day = String(centralDate.getDate()).padStart(2, '0');
-        
-        return {
-          date: `${year}-${month}-${day}`,
-          price: parseFloat(record.price),
-        };
-      }).reverse(); // Reverse to show oldest first
-      
+
+      const formattedHistory = history.map(record => ({
+        date: new Date(record.recordedAt).toISOString().split('T')[0],
+        price: parseFloat(record.price),
+      })).reverse();
+
       res.json(formattedHistory);
     } catch (error) {
       console.error("Error fetching price history:", error);
@@ -450,20 +560,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       const history = await storage.getPortfolioValueHistory(userId, daysBack);
       
-      // Transform to frontend format - convert UTC to Central timezone
-      const timezone = 'America/Chicago';
-      const formattedHistory = history.map(record => {
-        const utcDate = new Date(record.recordedAt);
-        const centralDate = toZonedTime(utcDate, timezone);
-        const year = centralDate.getFullYear();
-        const month = String(centralDate.getMonth() + 1).padStart(2, '0');
-        const day = String(centralDate.getDate()).padStart(2, '0');
-        
-        return {
-          date: `${year}-${month}-${day}`,
-          value: parseFloat(record.totalValue),
-        };
-      }).reverse(); // Reverse to show oldest first
+      const formattedHistory = history.map(record => ({
+        date: new Date(record.recordedAt).toISOString().split('T')[0],
+        value: parseFloat(record.totalValue),
+      })).reverse();
       
       res.json(formattedHistory);
     } catch (error) {

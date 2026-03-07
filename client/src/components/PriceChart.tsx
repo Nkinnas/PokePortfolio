@@ -35,6 +35,8 @@ export default function PriceChart({ cardId, currentPrice }: PriceChartProps) {
   // Fetch real price history
   const { data: priceHistory = [], isPending } = useQuery<PriceDataPoint[]>({
     queryKey: ['/api/price-history', cardId],
+    staleTime: 5 * 60 * 1000, // Refetch after 5 minutes (allows backfill to complete)
+    refetchOnMount: true,
   });
   
   const getFilteredData = () => {
@@ -153,6 +155,7 @@ export default function PriceChart({ cardId, currentPrice }: PriceChartProps) {
                 dataKey="date"
                 tick={{ fontSize: 12 }}
                 tickFormatter={(value) => formatDateShort(value)}
+                minTickGap={40}
               />
               <YAxis
                 tick={{ fontSize: 12 }}

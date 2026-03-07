@@ -50,12 +50,26 @@ export function PortfolioProvider({ children }: { children: ReactNode }) {
     cardNumber?: string | null;
   };
 
+  const invalidatePortfolioData = (delay?: number) => {
+    queryClient.invalidateQueries({ queryKey: ['/api/portfolio'] });
+    const refetchValueHistory = () => {
+      queryClient.refetchQueries({ queryKey: ['/api/portfolio-value-history'] });
+      queryClient.refetchQueries({ queryKey: ['/api/portfolio-value-history?days=all'] });
+    };
+    if (delay) {
+      setTimeout(refetchValueHistory, delay);
+    } else {
+      refetchValueHistory();
+    }
+  };
+
   const addMutation = useMutation({
     mutationFn: async (card: CreateCardPayload) => {
       return await apiRequest('POST', '/api/portfolio', card);
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['/api/portfolio'] });
+      // Delay value history refetch to let server finish background backfill + value update
+      invalidatePortfolioData(4000);
     },
   });
 
@@ -64,7 +78,7 @@ export function PortfolioProvider({ children }: { children: ReactNode }) {
       return await apiRequest('PATCH', `/api/portfolio/${id}`, data);
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['/api/portfolio'] });
+      invalidatePortfolioData();
     },
   });
 
@@ -73,7 +87,8 @@ export function PortfolioProvider({ children }: { children: ReactNode }) {
       return await apiRequest('DELETE', `/api/portfolio/${id}`);
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['/api/portfolio'] });
+      // Delete route updates value synchronously before responding
+      invalidatePortfolioData();
     },
   });
 
@@ -150,10 +165,15 @@ export function PortfolioProvider({ children }: { children: ReactNode }) {
     }
     queryClient.invalidateQueries({ queryKey: ['/api/portfolio'] });
 
+    // Refetch the current portfolio to get the up-to-date card list
+    // (handles cards that were added or removed since last render)
+    await queryClient.invalidateQueries({ queryKey: ['/api/portfolio'] });
+    const currentCards = queryClient.getQueryData<PortfolioCard[]>(['/api/portfolio']) || [];
+
     // Calculate total portfolio value using fresh prices where available,
     // falling back to existing prices for cards that failed to refresh
     const updatedPriceMap = new Map(validUpdates.map(u => [u.id, u.price]));
-    const totalValue = portfolioCards.reduce((sum, card) => {
+    const totalValue = currentCards.reduce((sum, card) => {
       const price = updatedPriceMap.get(card.id) ?? parseFloat(card.currentPrice);
       return sum + card.quantity * price;
     }, 0);
