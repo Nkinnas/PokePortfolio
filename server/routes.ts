@@ -58,11 +58,6 @@ const apiCreditLimiter = rateLimit({
 });
 
 export async function registerRoutes(app: Express): Promise<Server> {
-  // Trust first proxy (nginx) so secure cookies work behind reverse proxy
-  if (process.env.NODE_ENV === "production") {
-    app.set("trust proxy", 1);
-  }
-
   // Configure session middleware
   const sessionSecret = process.env.SESSION_SECRET;
   if (!sessionSecret) {
@@ -76,7 +71,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       saveUninitialized: false,
       cookie: {
         httpOnly: true,
-        secure: process.env.NODE_ENV === "production",
+        secure: false,
         sameSite: "lax",
         maxAge: 1000 * 60 * 60 * 24 * 7, // 7 days
       },
