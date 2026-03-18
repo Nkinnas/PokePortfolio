@@ -2,7 +2,7 @@ import type { Express, Request, Response, NextFunction } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { searchCards, getCardById, getCardPrice, getCardImageUrl, backfillCardPriceHistory, getExpansions, getExpansionCards } from "./pokemontcg";
-import { insertPortfolioCardSchema, insertUserSchema } from "@shared/schema";
+import { insertPortfolioCardSchema, insertUserSchema, users as usersTable } from "@shared/schema";
 import { fromZodError } from "zod-validation-error";
 import session from "express-session";
 import bcrypt from "bcryptjs";
@@ -10,6 +10,7 @@ import { db } from "../db";
 import { portfolioCards, portfolioValueHistory } from "@shared/schema";
 import { sql } from "drizzle-orm";
 import { triggerManualUpdate } from "./priceTracker";
+import rateLimit from "express-rate-limit";
 
 // Extend Express session type
 declare module 'express-session' {
@@ -27,23 +28,63 @@ function requireAuth(req: Request, res: Response, next: NextFunction) {
   next();
 }
 
+// Admin middleware — checks ADMIN_USER_IDS env var (comma-separated user IDs)
+function requireAdmin(req: Request, res: Response, next: NextFunction) {
+  if (!req.session || !req.session.userId) {
+    return res.status(401).json({ error: "Authentication required" });
+  }
+  const adminIds = (process.env.ADMIN_USER_IDS || "").split(",").map(id => id.trim()).filter(Boolean);
+  if (adminIds.length === 0 || !adminIds.includes(req.session.userId)) {
+    return res.status(403).json({ error: "Admin access required" });
+  }
+  next();
+}
+
+// Rate limiters
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 15, // 15 attempts per window
+  message: { error: "Too many attempts, please try again later" },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+const apiCreditLimiter = rateLimit({
+  windowMs: 60 * 1000, // 1 minute
+  max: 30, // 30 requests per minute for credit-consuming endpoints
+  message: { error: "Too many requests, please slow down" },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
 export async function registerRoutes(app: Express): Promise<Server> {
+  // Trust first proxy (nginx) so secure cookies work behind reverse proxy
+  if (process.env.NODE_ENV === "production") {
+    app.set("trust proxy", 1);
+  }
+
   // Configure session middleware
+  const sessionSecret = process.env.SESSION_SECRET;
+  if (!sessionSecret) {
+    throw new Error("SESSION_SECRET environment variable is required");
+  }
+
   app.use(
     session({
-      secret: process.env.SESSION_SECRET || "pokemon-portfolio-secret-key-change-in-production",
+      secret: sessionSecret,
       resave: false,
       saveUninitialized: false,
       cookie: {
         httpOnly: true,
-        secure: false,
+        secure: process.env.NODE_ENV === "production",
+        sameSite: "lax",
         maxAge: 1000 * 60 * 60 * 24 * 7, // 7 days
       },
     })
   );
 
-  // Auth routes
-  app.post("/api/auth/signup", async (req, res) => {
+  // Auth routes (rate limited)
+  app.post("/api/auth/signup", authLimiter, async (req, res) => {
     try {
       const validation = insertUserSchema.safeParse(req.body);
       if (!validation.success) {
@@ -68,19 +109,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
         password: hashedPassword,
       });
 
-      // CRITICAL: Assign all existing unowned data to this first user
-      // This ensures the user's existing portfolio data gets transferred to their account
-      await db.execute(sql`
-        UPDATE portfolio_cards 
-        SET user_id = ${user.id} 
-        WHERE user_id IS NULL
-      `);
-      
-      await db.execute(sql`
-        UPDATE portfolio_value_history 
-        SET user_id = ${user.id} 
-        WHERE user_id IS NULL
-      `);
+      // Only assign unowned data if this is the very first user (migration from pre-auth)
+      const userCount = await db.select({ count: sql<number>`COUNT(*)` }).from(usersTable);
+      if (parseInt(userCount[0].count as any) === 1) {
+        await db.execute(sql`
+          UPDATE portfolio_cards
+          SET user_id = ${user.id}
+          WHERE user_id IS NULL
+        `);
+
+        await db.execute(sql`
+          UPDATE portfolio_value_history
+          SET user_id = ${user.id}
+          WHERE user_id IS NULL
+        `);
+      }
 
       // Create session
       req.session.userId = user.id;
@@ -96,7 +139,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/auth/login", async (req, res) => {
+  app.post("/api/auth/login", authLimiter, async (req, res) => {
     try {
       const validation = insertUserSchema.safeParse(req.body);
       if (!validation.success) {
@@ -242,8 +285,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Search Pokemon cards
-  app.get("/api/cards/search", async (req, res) => {
+  // Search Pokemon cards (rate limited — each search costs API credits)
+  app.get("/api/cards/search", apiCreditLimiter, async (req, res) => {
     try {
       const query = req.query.q as string;
       const page = parseInt(req.query.page as string) || 1;
@@ -358,8 +401,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Refresh card price from API
-  app.post("/api/cards/:id/refresh", async (req, res) => {
+  // Refresh card price from API (rate limited — costs API credits)
+  app.post("/api/cards/:id/refresh", apiCreditLimiter, async (req, res) => {
     try {
       const { id } = req.params;
       const result = await getCardById(id);
@@ -572,8 +615,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Trigger server-side price update (same as cron job)
-  app.post("/api/admin/trigger-price-update", requireAuth, async (req, res) => {
+  // Trigger server-side price update (admin only)
+  app.post("/api/admin/trigger-price-update", requireAdmin, async (req, res) => {
     try {
       const success = await triggerManualUpdate();
       res.json({ success, message: success ? "All prices updated" : "Some prices failed to update" });
