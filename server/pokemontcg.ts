@@ -283,14 +283,8 @@ function getBestRawNmPrice(card: PokemonCard): ScrydexVariantPrice | null {
  */
 export async function backfillCardPriceHistory(cardId: string): Promise<number> {
   try {
-    // Skip if this card already has any price history
-    const existingCount = await db.execute(sql`
-      SELECT COUNT(*) as cnt FROM card_price_history WHERE card_id = ${cardId}
-    `);
-    if (parseInt(existingCount.rows[0].cnt as string) > 0) {
-      console.log(`[Backfill] ${cardId}: already has price history, skipping`);
-      return 0;
-    }
+    // Clear existing history so we always get fresh data from the API
+    await db.execute(sql`DELETE FROM card_price_history WHERE card_id = ${cardId}`);
 
     const response = await apiClient.get(`/cards/${cardId}/price_history`, {
       params: { page_size: 100 },
@@ -325,7 +319,8 @@ export async function backfillCardPriceHistory(cardId: string): Promise<number> 
       }
       if (price === null) continue;
 
-      const recordedAt = new Date(day.date + 'T21:00:00.000Z');
+      const normalizedDate = day.date.replace(/\//g, '-');
+      const recordedAt = new Date(normalizedDate + 'T21:00:00.000Z');
       await db.insert(cardPriceHistory).values({
         cardId,
         price: price.toFixed(2),
