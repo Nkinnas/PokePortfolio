@@ -5,9 +5,6 @@ import PortfolioCardItem from "@/components/PortfolioCardItem";
 import PortfolioValueChart from "@/components/PortfolioValueChart";
 import EmptyState from "@/components/EmptyState";
 import { usePortfolio } from "@/lib/PortfolioContext";
-import { Button } from "@/components/ui/button";
-import { RefreshCw } from "lucide-react";
-import { useToast } from "@/hooks/use-toast";
 import { safeParsePrice } from "@/lib/priceUtils";
 import {
   Select,
@@ -28,9 +25,7 @@ type SortOption =
 export default function Portfolio() {
   const [, setLocation] = useLocation();
   const [sortBy, setSortBy] = useState<SortOption>("total-value-desc");
-  const [isRefreshing, setIsRefreshing] = useState(false);
-  const { portfolioCards, isLoading, updateQuantity, updatePurchasePrice, removeCard, refreshPrices } = usePortfolio();
-  const { toast } = useToast();
+  const { portfolioCards, isLoading, updateQuantity, updatePurchasePrice, removeCard } = usePortfolio();
 
   const totalValue = portfolioCards.reduce(
     (sum, card) => sum + card.quantity * safeParsePrice(card.currentPrice),
@@ -77,25 +72,6 @@ export default function Portfolio() {
 
   const sortedCards = getSortedCards();
   
-  const handleRefreshPrices = async () => {
-    setIsRefreshing(true);
-    try {
-      await refreshPrices();
-      toast({
-        title: "Prices Updated",
-        description: "All card prices have been refreshed successfully.",
-      });
-    } catch (error) {
-      toast({
-        title: "Refresh Issue",
-        description: error instanceof Error ? error.message : "Some prices could not be updated. Please try again.",
-        variant: "destructive",
-      });
-    } finally {
-      setIsRefreshing(false);
-    }
-  };
-  
   if (isLoading) {
     return (
       <div className="container mx-auto px-4 py-8 max-w-7xl">
@@ -124,15 +100,6 @@ export default function Portfolio() {
         <h1 className="text-4xl font-display font-bold">
           My Portfolio
         </h1>
-        <Button
-          onClick={handleRefreshPrices}
-          disabled={isRefreshing}
-          className="bg-yellow-400 hover:bg-yellow-500 text-black w-full sm:w-auto sm:px-8"
-          data-testid="button-refresh-prices"
-        >
-          <RefreshCw className={`h-4 w-4 mr-2 ${isRefreshing ? 'animate-spin' : ''}`} />
-          {isRefreshing ? 'Refreshing...' : 'Refresh Prices'}
-        </Button>
       </div>
 
       <div className="mb-8">

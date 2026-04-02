@@ -67,7 +67,7 @@ export default function PortfolioValueChart({ currentValue }: PortfolioValueChar
         </CardHeader>
         <CardContent>
           <div className="h-64 flex items-center justify-center">
-            <p className="text-muted-foreground">No value history available yet. Click "Refresh Prices" to start tracking!</p>
+            <p className="text-muted-foreground">No value history available yet. Prices update automatically each day.</p>
           </div>
         </CardContent>
       </Card>
