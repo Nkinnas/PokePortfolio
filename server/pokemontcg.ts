@@ -286,15 +286,25 @@ export async function backfillCardPriceHistory(cardId: string): Promise<number> 
     // Clear existing history so we always get fresh data from the API
     await db.execute(sql`DELETE FROM card_price_history WHERE card_id = ${cardId}`);
 
-    const response = await apiClient.get(`/cards/${cardId}/price_history`, {
-      params: { page_size: 100 },
-    });
-
-    const days = response.data.data as Array<{ date: string; prices: Array<{
+    // Fetch all pages of price history
+    type PriceDay = { date: string; prices: Array<{
       variant: string; condition: string; type: string; currency: string; market: number; low?: number;
-    }> }>;
+    }> };
+    const days: PriceDay[] = [];
+    let page = 1;
+    while (true) {
+      const response = await apiClient.get(`/cards/${cardId}/price_history`, {
+        params: { page, page_size: 100 },
+      });
+      const pageDays = response.data.data as PriceDay[];
+      if (!pageDays || pageDays.length === 0) break;
+      days.push(...pageDays);
+      const totalCount = response.data.total_count ?? 0;
+      if (days.length >= totalCount) break;
+      page++;
+    }
 
-    if (!days || days.length === 0) {
+    if (days.length === 0) {
       console.log(`[Backfill] ${cardId}: no price history available`);
       return 0;
     }

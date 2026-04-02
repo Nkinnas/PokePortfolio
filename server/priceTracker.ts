@@ -116,8 +116,8 @@ async function recordPricesWithRetry(): Promise<boolean> {
   isRunning = true;
 
   try {
-    console.log("[Price Tracker] Fetching all unique card IDs...");
-    const uniqueCardIds = await storage.getAllUniqueCardIds();
+    console.log("[Price Tracker] Fetching all cached card IDs...");
+    const uniqueCardIds = await storage.getAllCachedCardIds();
 
     if (uniqueCardIds.length === 0) {
       console.log("[Price Tracker] No cards to track");

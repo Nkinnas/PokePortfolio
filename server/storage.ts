@@ -38,6 +38,7 @@ export interface IStorage {
   
   // Helper methods for automatic price tracking
   getAllUniqueCardIds(): Promise<string[]>;
+  getAllCachedCardIds(): Promise<string[]>;
   getAllUsersWithPortfolios(): Promise<User[]>;
   batchUpdatePortfolioCardPrices(updates: Array<{ id: string; userId: string; currentPrice: string }>): Promise<void>;
 }
@@ -191,8 +192,16 @@ export class DbStorage implements IStorage {
     const results = await db
       .selectDistinct({ cardId: portfolioCards.cardId })
       .from(portfolioCards);
-    
+
     return results.map(r => r.cardId);
+  }
+
+  async getAllCachedCardIds(): Promise<string[]> {
+    const results = await db
+      .select({ id: cards.id })
+      .from(cards);
+
+    return results.map(r => r.id);
   }
 
   async getAllUsersWithPortfolios(): Promise<User[]> {

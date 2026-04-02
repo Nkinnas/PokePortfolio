@@ -464,15 +464,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const card = await storage.createPortfolioCard({ ...validation.data, userId });
       res.json(card);
 
-      // Background: backfill price history + update portfolio value
-      (async () => {
-        await backfillCardPriceHistory(card.cardId).catch(err =>
-          console.error(`Failed to backfill price history for ${card.cardId}:`, err)
-        );
-        await updatePortfolioValue(userId).catch(err =>
-          console.error(`Failed to update portfolio value:`, err)
-        );
-      })();
+      // Background: update portfolio value
+      updatePortfolioValue(userId).catch(err =>
+        console.error(`Failed to update portfolio value:`, err)
+      );
     } catch (error) {
       console.error("Error creating portfolio card:", error);
       res.status(500).json({ error: "Failed to create portfolio card" });
@@ -541,7 +536,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const { cardId } = req.params;
       const daysBack = parseInt(req.query.days as string) || 180;
 
-      const history = await storage.getCardPriceHistory(cardId, daysBack);
+      let history = await storage.getCardPriceHistory(cardId, daysBack);
+
+      // Auto-backfill on first view: fetch full history from Scrydex API
+      if (history.length === 0) {
+        const inserted = await backfillCardPriceHistory(cardId);
+        if (inserted > 0) {
+          history = await storage.getCardPriceHistory(cardId, daysBack);
+        }
+      }
 
       const formattedHistory = history.map(record => ({
         date: new Date(record.recordedAt).toISOString().split('T')[0],
