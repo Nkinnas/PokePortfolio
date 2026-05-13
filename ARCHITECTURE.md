@@ -11,7 +11,7 @@ flowchart LR
 ```
 
 - **Client** — React + Vite, talks to the server over REST
-- **Server** — Express, handles auth, caches data, proxies the Scrydex API
+- **Server** — Express, handles auth, 3-tier cache, proxies the Scrydex API
 - **Postgres** — stores users, portfolios, and price history
 - **Scrydex** — external Pokémon TCG data + prices
 - **Cron** — runs daily at 1 PM CT to record prices
